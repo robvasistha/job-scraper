@@ -53,7 +53,10 @@ def fetch_jobs(base_url, preferences):
 
     try:
         while True:
-            job_cards = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "td.resultContent")))
+            job_cards = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "li.css-5lfssm")))
+            # Filtering job cards to include only those with 'td.resultContent'
+            job_cards = [card for card in job_cards if card.find_elements(By.CSS_SELECTOR, "td.resultContent")]
+            
             for job_card in job_cards:
                 job_info = process_job_card(job_card, preferences)
                 if job_info:
@@ -82,26 +85,41 @@ def fetch_jobs(base_url, preferences):
 
 def process_job_card(job_card, preferences):
     try:
-        job_title = job_card.find_element(By.CSS_SELECTOR, "h2.jobTitle > a > span[title]").get_attribute('title').lower()
-        company_name = job_card.find_element(By.CSS_SELECTOR, "[data-testid='company-name']").text
-        location = job_card.find_element(By.CSS_SELECTOR, "[data-testid='text-location']").text
-        job_description_elements = job_card.find_elements(By.CSS_SELECTOR, "ul[style*='list-style-type:circle']")
-        job_descriptions = " ".join([desc.text.lower() for desc in job_description_elements])
-
-        print(f"Debug: Job Descriptions found: {job_descriptions}")  # Debug print
-
-        # Combine title and descriptions for keyword counting
-        full_text = job_title + " " + job_descriptions
+        # Flexible and conditional checks for job title
+        title_elements = job_card.find_elements(By.CSS_SELECTOR, "h2.jobTitle > a > span[title]")
+        job_title = title_elements[0].get_attribute('title').lower() if title_elements else "Job title not found"
         
-        print(f"Debug: Full Text for Keyword Counting: {full_text}")  # Debug print
+        # Attempt to find the company name with a more flexible approach
+        company_elements = job_card.find_elements(By.CSS_SELECTOR, "[data-testid='company-name']")
+        company_name = company_elements[0].text if company_elements else "Company name not found"
+        
+        # Similar approach for location
+        location_elements = job_card.find_elements(By.CSS_SELECTOR, "[data-testid='text-location']")
+        location = location_elements[0].text if location_elements else "Location not found"
+        
+        # Getting job descriptions
+        job_description_elements = job_card.find_elements(By.CSS_SELECTOR, "div[role='presentation'] .css-9446fg > ul > li")
+        job_descriptions = " ".join([desc.text.lower() for desc in job_description_elements])
+        
+        keyword_count = sum(pref.lower() in (job_title + " " + job_descriptions) for pref in preferences["prefer_keywords"])
 
-        # Count keywords in both title and job descriptions
-        keyword_count = sum(pref.lower() in full_text for pref in preferences["prefer_keywords"])
-        keyword_count = sum(pref.lower() in job_title + " " + job_descriptions for pref in preferences["prefer_keywords"])
+        print(f"Debug: Job Title - {job_title}")
+        print(f"Debug: Company Name - {company_name}")
+        print(f"Debug: Location - {location}")
+        print(f"Debug: Job Descriptions - {job_descriptions}")
+
         return {"job_title": job_title, "company_name": company_name, "location": location, "keyword_count": keyword_count}
-    except NoSuchElementException:
-        print("Error processing job card")
+    except Exception as e:
+        print(f"Error processing job card: {e}")
         return None
+
+
+
+
+
+
+
+
 
 if __name__ == "__main__":
     user_preferences = {
