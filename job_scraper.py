@@ -40,7 +40,7 @@ def close_email_alert_overlay(driver, email_alert_closed):
             print("Email alert overlay not found or not clickable at the moment.")
     return email_alert_closed
 
-def fetch_jobs(base_url, preferences):
+def fetch_jobs(base_url, preferences, max_pages=None):
     search_query = preferences['search_query'].replace(' ', '+')
     location = preferences['location'].replace(' ', '+')
     url = f"{base_url}/jobs?q={search_query}&l={location}"
@@ -50,22 +50,27 @@ def fetch_jobs(base_url, preferences):
     wait = WebDriverWait(driver, 20)
     jobs = []
     email_alert_closed = False
+    page_count = 0  # Initialize page count
 
     try:
         while True:
             job_cards = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "li.css-5lfssm")))
-            # Filtering job cards to include only those with 'td.resultContent'
             job_cards = [card for card in job_cards if card.find_elements(By.CSS_SELECTOR, "td.resultContent")]
-            
+
             for job_card in job_cards:
                 job_info = process_job_card(job_card, preferences)
                 if job_info:
                     jobs.append(job_info)
 
+            page_count += 1  # Increment the page count
+            if max_pages and page_count >= max_pages:
+                print(f"Reached max pages limit: {max_pages}")
+                break  # Break the loop if the maximum page limit is reached
+
             try:
                 next_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='pagination-page-next']")))
                 next_button.click()
-                print("Moving to the next page...")
+                print(f"Moving to page {page_count + 1}...")
                 email_alert_closed = close_email_alert_overlay(driver, email_alert_closed)
                 time.sleep(random.randint(5, 15))  # Mimic human browsing delays
             except ElementClickInterceptedException:
@@ -85,9 +90,14 @@ def fetch_jobs(base_url, preferences):
 
 def process_job_card(job_card, preferences):
     try:
-        # Flexible and conditional checks for job title
-        title_elements = job_card.find_elements(By.CSS_SELECTOR, "h2.jobTitle > a > span[title]")
-        job_title = title_elements[0].get_attribute('title').lower() if title_elements else "Job title not found"
+        # Flexible and conditional checks for job title and extracting URL
+        title_elements = job_card.find_elements(By.CSS_SELECTOR, "h2.jobTitle > a")
+        if title_elements:
+            job_title = title_elements[0].find_element(By.CSS_SELECTOR, "span[title]").get_attribute('title').lower()
+            job_url = title_elements[0].get_attribute('href')
+        else:
+            job_title = "Job title not found"
+            job_url = "URL not found"
         
         # Attempt to find the company name with a more flexible approach
         company_elements = job_card.find_elements(By.CSS_SELECTOR, "[data-testid='company-name']")
@@ -100,18 +110,30 @@ def process_job_card(job_card, preferences):
         # Getting job descriptions
         job_description_elements = job_card.find_elements(By.CSS_SELECTOR, "div[role='presentation'] .css-9446fg > ul > li")
         job_descriptions = " ".join([desc.text.lower() for desc in job_description_elements])
-        
-        keyword_count = sum(pref.lower() in (job_title + " " + job_descriptions) for pref in preferences["prefer_keywords"])
+
+        # Combined text for omit keyword check
+        combined_text = job_title + " " + job_descriptions
+
+        # Check if the combined text contains any of the omit keywords
+        if any(omit_keyword.lower() in combined_text for omit_keyword in preferences['omit_keywords']):
+            print(f"Omitted Job: {job_title} - Contains omit keyword")
+            return None  # Skip this job card if it contains any omit keywords
+
+        keyword_count = sum(pref.lower() in combined_text for pref in preferences["prefer_keywords"])
 
         print(f"Debug: Job Title - {job_title}")
         print(f"Debug: Company Name - {company_name}")
         print(f"Debug: Location - {location}")
         print(f"Debug: Job Descriptions - {job_descriptions}")
+        print(f"Debug: URL - {job_url}")
 
-        return {"job_title": job_title, "company_name": company_name, "location": location, "keyword_count": keyword_count}
+        return {"job_title": job_title, "company_name": company_name, "location": location, "keyword_count": keyword_count, "url": job_url}
     except Exception as e:
         print(f"Error processing job card: {e}")
         return None
+
+
+
 
 
 
@@ -128,4 +150,4 @@ if __name__ == "__main__":
         'omit_keywords': ["senior", "principal", "staff"],
         'prefer_keywords': ["entry level", "junior", "python"]
     }
-    fetch_jobs("https://www.indeed.co.uk", user_preferences)
+    fetch_jobs("https://www.indeed.co.uk", user_preferences, max_pages=3)
